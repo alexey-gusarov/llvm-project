@@ -140,3 +140,35 @@ class StepReportsStopOthers:
 
     def explains_stop(self, event):
         return True
+
+
+# These two are top of the plan stack -- they queue no child plan -- so the
+# thread's run state comes from their should_step, and that is the only thing
+# that differs between them.
+class RunToNextBreakpoint:
+    def __init__(self, thread_plan, args_data):
+        self.thread_plan = thread_plan
+
+    def explains_stop(self, event):
+        return False
+
+    def should_stop(self, event):
+        self.thread_plan.SetPlanComplete(True)
+        return True
+
+    def should_step(self):
+        return False
+
+
+class StepOneInstruction(RunToNextBreakpoint):
+    def should_step(self):
+        return True
+
+
+class ReturnsAnIntFromShouldStep(RunToNextBreakpoint):
+    """should_step's contract is a bool.  An int is not an answer, and the plan
+    steps -- which it did not always do: the int used to be reinterpreted as a
+    StateType."""
+
+    def should_step(self):
+        return 0

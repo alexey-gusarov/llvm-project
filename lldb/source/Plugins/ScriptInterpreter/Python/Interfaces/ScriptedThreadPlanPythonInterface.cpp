@@ -10,7 +10,9 @@
 
 #include "lldb/Core/PluginManager.h"
 #include "lldb/Target/ThreadPlan.h"
+#include "lldb/Utility/LLDBLog.h"
 #include "lldb/Utility/Log.h"
+#include "lldb/Utility/StreamString.h"
 #include "lldb/lldb-enumerations.h"
 
 #include "../SWIGPythonBridge.h"
@@ -86,8 +88,30 @@ lldb::StateType ScriptedThreadPlanPythonInterface::GetRunState() {
                                                     error))
     return lldb::eStateStepping;
 
-  return static_cast<lldb::StateType>(obj->GetUnsignedIntegerValue(
-      static_cast<uint32_t>(lldb::eStateStepping)));
+  // `should_step` answers a question, it does not return a StateType: the
+  // documented contract is "Return `True` if you want lldb to instruction step
+  // one instruction, or False to continue till the next breakpoint is hit"
+  // (lldb/docs/use/tutorials/automating-stepping-logic.md).  A Python bool
+  // arrives here as a
+  // StructuredData::Boolean, and GetUnsignedIntegerValue() returns its fail
+  // value for anything that is not an Integer -- so reading the answer as a
+  // StateType discarded it, and a plan returning False single-stepped exactly
+  // like one returning True.
+  if (StructuredData::Boolean *should_step = obj->GetAsBoolean())
+    return should_step->GetValue() ? lldb::eStateStepping : lldb::eStateRunning;
+
+  // Anything else is not an answer to the question that was asked.  Step, as
+  // this function has always done when it could not read a reply -- but say so
+  // in the log, because an int return used to be reinterpreted as a StateType
+  // and is the one thing whose behaviour changes here.
+  if (Log *log = GetLog(LLDBLog::Script)) {
+    StreamString returned;
+    obj->Dump(returned, /*pretty_print=*/false);
+    LLDB_LOG(log,
+             "{0}: should_step returned {1}, which is not a bool; stepping.",
+             LLVM_PRETTY_FUNCTION, returned.GetData());
+  }
+  return lldb::eStateStepping;
 }
 
 llvm::Error

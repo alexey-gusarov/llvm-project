@@ -45,6 +45,78 @@ class StepScriptedTestCase(TestBase):
             "ValueError: scripted plan construction failed", result.GetError()
         )
 
+    def test_should_step_false_runs_to_the_next_breakpoint(self):
+        """A scripted plan whose should_step returns False must let the process
+        run until the next breakpoint, not single-step one instruction."""
+        self.build()
+        (target, process, thread, bkpt) = lldbutil.run_to_source_breakpoint(
+            self, "Set a breakpoint here", self.main_source_file
+        )
+        second = target.BreakpointCreateBySourceRegex(
+            "Run to this breakpoint", self.main_source_file
+        )
+        self.assertTrue(second.GetNumLocations() > 0, VALID_BREAKPOINT)
+
+        err = thread.StepUsingScriptedThreadPlan("Steps.RunToNextBreakpoint")
+        self.assertSuccess(err)
+
+        self.assertStopReason(
+            thread.GetStopReason(),
+            lldb.eStopReasonBreakpoint,
+            "should_step returned False, so the thread should have run on to "
+            "the next breakpoint",
+        )
+        self.assertEqual(second.GetHitCount(), 1)
+
+    def test_should_step_true_steps_one_instruction(self):
+        """The sibling of the test above: returning True from should_step still
+        single-steps, so the later breakpoint is not reached."""
+        self.build()
+        (target, process, thread, bkpt) = lldbutil.run_to_source_breakpoint(
+            self, "Set a breakpoint here", self.main_source_file
+        )
+        second = target.BreakpointCreateBySourceRegex(
+            "Run to this breakpoint", self.main_source_file
+        )
+        self.assertTrue(second.GetNumLocations() > 0, VALID_BREAKPOINT)
+
+        err = thread.StepUsingScriptedThreadPlan("Steps.StepOneInstruction")
+        self.assertSuccess(err)
+
+        self.assertEqual(
+            second.GetHitCount(),
+            0,
+            "should_step returned True, so the thread should not have run as "
+            "far as the next breakpoint",
+        )
+        self.assertStopReason(
+            thread.GetStopReason(),
+            lldb.eStopReasonPlanComplete,
+            "the scripted plan should have completed after one instruction",
+        )
+
+    def test_should_step_returning_an_int_steps(self):
+        """should_step answers a question with a bool; anything else is not an
+        answer, and the plan steps rather than running free."""
+        self.build()
+        (target, process, thread, bkpt) = lldbutil.run_to_source_breakpoint(
+            self, "Set a breakpoint here", self.main_source_file
+        )
+        second = target.BreakpointCreateBySourceRegex(
+            "Run to this breakpoint", self.main_source_file
+        )
+        self.assertTrue(second.GetNumLocations() > 0, VALID_BREAKPOINT)
+
+        err = thread.StepUsingScriptedThreadPlan("Steps.ReturnsAnIntFromShouldStep")
+        self.assertSuccess(err)
+
+        self.assertEqual(second.GetHitCount(), 0)
+        self.assertStopReason(
+            thread.GetStopReason(),
+            lldb.eStopReasonPlanComplete,
+            "the plan should have completed after one instruction",
+        )
+
     def step_out_with_scripted_plan(self, name):
         (target, process, thread, bkpt) = lldbutil.run_to_source_breakpoint(
             self, "Set a breakpoint here", self.main_source_file
